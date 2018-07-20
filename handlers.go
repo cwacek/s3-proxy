@@ -8,6 +8,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/sirupsen/logrus"
 )
 
 func NewSSLRedirectHandler(next http.Handler) http.HandlerFunc {
@@ -41,7 +42,12 @@ func (h *HostDispatchingHandler) HandleHost(host string, handler http.Handler) {
 }
 
 func (h *HostDispatchingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	handler, ok := h.hosts[getHost(r)]
+	host := getHost(r)
+	logrus.WithFields(logrus.Fields{
+		"host": host,
+	}).Debug()
+
+	handler, ok := h.hosts[host]
 	if !ok {
 		http.Error(w, "Not Found", http.StatusNotFound)
 		return

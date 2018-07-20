@@ -1,50 +1,31 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"log"
 	"net/http"
-	"strconv"
+
+	"github.com/sirupsen/logrus"
+
+	kingpin "gopkg.in/alecthomas/kingpin.v2"
 )
 
-type Site struct {
-	Host      string  `json:"host"`
-	AWSKey    string  `json:"awsKey"`
-	AWSSecret string  `json:"awsSecret"`
-	AWSRegion string  `json:"awsRegion"`
-	AWSBucket string  `json:"awsBucket"`
-	Users     []User  `json:"users"`
-	Options   Options `json:"options"`
-}
-
-type User struct {
-	Name     string `json:"name"`
-	Password string `json:"password"`
-}
-
-type Options struct {
-	CORS     bool   `json:"cors"`
-	Gzip     bool   `json:"gzip"`
-	Website  bool   `json:"website"`
-	Prefix   string `json:"prefix"`
-	ForceSSL bool   `json:"forceSsl"`
-	Proxied  bool   `json:"proxied"`
-}
+var (
+	configFile = kingpin.Arg("config", "Load config from this file").Required().File()
+	reload     = kingpin.Flag("-r", "Reload the config file automatically").Default("true").Bool()
+	listenAddr = kingpin.Flag("--listen", "listen address").Short('L').Default(":8080").TCP()
+)
 
 func main() {
-	handler, err := ConfiguredProxyHandler()
+	logrus.SetLevel(logrus.DebugLevel)
+	kingpin.Parse()
+
+	handler, err := ConfiguredProxyHandler(*configFile)
 	if err != nil {
 		fmt.Printf("fatal: %v\n", err)
 		return
 	}
 
-	port := flag.Int("port", 8080, "Port to listen on")
-
-	flag.Parse()
-
-	portStr := strconv.FormatInt(int64(*port), 10)
-
-	log.Println("s3-proxy is listening on port " + portStr)
-	log.Fatal(http.ListenAndServe(":"+portStr, handler))
+	log.Printf("s3-proxy is listening on %s\n", *listenAddr)
+	log.Fatal(http.ListenAndServe((*listenAddr).String(), handler))
 }

@@ -1,59 +1,63 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"strings"
 
 	"github.com/gorilla/handlers"
+	"github.com/hashicorp/hcl"
+	"github.com/sirupsen/logrus"
 )
+
+type Site struct {
+	Host          string  `json:"host"`
+	AWSKey        string  `json:"awsKey"`
+	AWSSecret     string  `json:"awsSecret"`
+	AWSRegion     string  `json:"awsRegion"`
+	AWSBucket     string  `json:"awsBucket"`
+	AWSBucketPath string  `json:"awsBucketPath"`
+	Users         []User  `json:"users"`
+	Options       Options `json:"options"`
+}
+
+type User struct {
+	Name     string `json:"name"`
+	Password string `json:"password"`
+}
+
+type Options struct {
+	CORS     bool   `json:"cors"`
+	Gzip     bool   `json:"gzip"`
+	Website  bool   `json:"website"`
+	Prefix   string `json:"prefix"`
+	ForceSSL bool   `json:"forceSsl"`
+	Proxied  bool   `json:"proxied"`
+}
 
 type sitesCfg []Site
 
-const (
-	kConfigName      = "S3PROXY_CONFIG"
-	kAWSKeyName      = "S3PROXY_AWS_KEY"
-	kAWSSecretName   = "S3PROXY_AWS_SECRET"
-	kAWSRegionName   = "S3PROXY_AWS_REGION"
-	kAWSBucketName   = "S3PROXY_AWS_BUCKET"
-	kUsersName       = "S3PROXY_USERS"
-	kCORSKeyName     = "S3PROXY_OPTION_CORS"
-	kGzipKeyName     = "S3PROXY_OPTION_GZIP"
-	kWebsiteKeyName  = "S3PROXY_OPTION_WEBSITE"
-	kPrefixKeyName   = "S3PROXY_OPTION_PREFIX"
-	kForceSSLKeyName = "S3PROXY_OPTION_FORCE_SSL"
-	kProxiedKeyName  = "S3PROXY_OPTION_PROXIED"
-)
-
-func ConfiguredProxyHandler() (http.Handler, error) {
-	_, ok := os.LookupEnv(kConfigName)
-
-	if ok {
-		return createMulti()
-	} else {
-		return createSingle()
+func ConfiguredProxyHandler(configFile *os.File) (http.Handler, error) {
+	var config []Site = make([]Site, 0)
+	bytes, err := ioutil.ReadAll(configFile)
+	if err != nil {
+		logrus.WithField("file", configFile.Name()).Errorf("Failed to read config")
 	}
+
+	hcl.Decode(&config, string(bytes))
+
+	return createMulti(config)
 }
 
-func createMulti() (http.Handler, error) {
-	var cfg sitesCfg
-	cfgJson := os.Getenv(kConfigName)
-
-	err := json.Unmarshal([]byte(cfgJson), &cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(cfg) == 0 {
-		return nil, errors.New("Must specify one or more configurations")
-	}
+func createMulti(sites []Site) (http.Handler, error) {
+	var err error
 
 	handler := NewHostDispatchingHandler()
 
-	for i, site := range cfg {
+	for i, site := range sites {
 		err = site.validateWithHost()
 
 		if err != nil {
@@ -65,39 +69,6 @@ func createMulti() (http.Handler, error) {
 	}
 
 	return handler, nil
-}
-
-func createSingle() (http.Handler, error) {
-	users, err := parseUsers(os.Getenv(kUsersName))
-	if err != nil {
-		return nil, err
-	}
-
-	opts := Options{
-		CORS:     os.Getenv(kCORSKeyName) == "true",
-		Gzip:     os.Getenv(kGzipKeyName) == "true",
-		Website:  os.Getenv(kWebsiteKeyName) == "true",
-		Prefix:   os.Getenv(kPrefixKeyName),
-		ForceSSL: os.Getenv(kForceSSLKeyName) == "true",
-		Proxied:  os.Getenv(kProxiedKeyName) == "true",
-	}
-
-	s := Site{
-		AWSKey:    os.Getenv(kAWSKeyName),
-		AWSSecret: os.Getenv(kAWSSecretName),
-		AWSRegion: os.Getenv(kAWSRegionName),
-		AWSBucket: os.Getenv(kAWSBucketName),
-		Users:     users,
-		Options:   opts,
-	}
-
-	err = s.validate()
-
-	if err != nil {
-		return nil, err
-	} else {
-		return createSiteHandler(s), nil
-	}
 }
 
 func createSiteHandler(s Site) http.Handler {
