@@ -1,8 +1,6 @@
 package main
 
 import (
-	"path/filepath"
-
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -40,7 +38,7 @@ func (p *RealS3Proxy) Get(key string) (*s3.GetObjectOutput, error) {
 
 	logrus.WithFields(logrus.Fields{
 		"bucket": p.bucket,
-		"path":   req.Key,
+		"path":   key,
 	}).Debug("Making S3 Request")
 
 	return p.s3.GetObject(req)

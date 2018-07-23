@@ -38,6 +38,21 @@ type Options struct {
 	Proxied  bool   `json:"proxied"`
 }
 
+func (o Options) String() string {
+	return fmt.Sprintf("[cors: %t]"+
+		"[gzip: %t]"+
+		"[website: %t]"+
+		"[prefix: %s]"+
+		"[ssl: %t]"+
+		"[proxied: %t]",
+		o.CORS,
+		o.Gzip,
+		o.Website,
+		o.Prefix,
+		o.ForceSSL,
+		o.Proxied)
+}
+
 type sitesCfg []Site
 
 func ConfiguredProxyHandler(configFile *os.File) (http.Handler, error) {
@@ -47,7 +62,12 @@ func ConfiguredProxyHandler(configFile *os.File) (http.Handler, error) {
 		logrus.WithField("file", configFile.Name()).Errorf("Failed to read config")
 	}
 
-	hcl.Decode(&config, string(bytes))
+	err = hcl.Decode(&config, string(bytes))
+	if err != nil {
+		logrus.WithField("error", err).Error("Error decoding config")
+	}
+
+	logrus.WithField("count", len(config)).Info("Read sites")
 
 	return createMulti(config)
 }
@@ -65,6 +85,10 @@ func createMulti(sites []Site) (http.Handler, error) {
 			return nil, errors.New(msg)
 		}
 
+		logrus.WithFields(logrus.Fields{
+			"host":    site.Host,
+			"options": site.Options,
+		}).Debug("Configuring site handlers")
 		handler.HandleHost(site.Host, createSiteHandler(site))
 	}
 

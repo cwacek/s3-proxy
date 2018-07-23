@@ -8,6 +8,8 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/s3"
+	opentracing "github.com/opentracing/opentracing-go"
+	"github.com/opentracing/opentracing-go/log"
 	"github.com/sirupsen/logrus"
 )
 
@@ -38,11 +40,22 @@ func NewHostDispatchingHandler() *HostDispatchingHandler {
 }
 
 func (h *HostDispatchingHandler) HandleHost(host string, handler http.Handler) {
+	_, exists := h.hosts[host]
+	if exists {
+		logrus.WithField("host", host).Warn("Duplicate site configuration. Latest will be used.")
+	}
 	h.hosts[host] = handler
 }
 
 func (h *HostDispatchingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	host := getHost(r)
+
+	span, ctx := opentracing.StartSpanFromContext(r.Context(), "host-handler")
+	span.LogFields(
+		log.String("host", host),
+	)
+	defer span.Finish()
+
 	logrus.WithFields(logrus.Fields{
 		"host": host,
 	}).Debug()
@@ -53,7 +66,7 @@ func (h *HostDispatchingHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	handler.ServeHTTP(w, r)
+	handler.ServeHTTP(w, r.WithContext(ctx))
 }
 
 func NewBasicAuthHandler(users []User, next http.Handler) http.HandlerFunc {
@@ -100,10 +113,15 @@ func NewWebsiteHandler(next http.Handler, cfg *s3.GetBucketWebsiteOutput) http.H
 
 func NewProxyHandler(proxy S3Proxy, prefix string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		span, _ := opentracing.StartSpanFromContext(r.Context(), "s3-fetch")
+		defer span.Finish()
 		path := r.URL.Path
 		if prefix != "" {
 			path = "/" + prefix + path
 		}
+		span.LogFields(
+			log.String("path", path),
+		)
 
 		obj, err := proxy.Get(path)
 		if err != nil {
